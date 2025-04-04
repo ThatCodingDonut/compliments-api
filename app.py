@@ -1,24 +1,27 @@
 import sqlite3
-from flask import Flask, request, jsonify, g
-from datetime import datetime
 import os
+from datetime import datetime
+from flask import Flask, request, jsonify, g
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+# Determine the absolute path for the SQLite database
 DATABASE = os.path.join(os.path.abspath(os.path.dirname(__file__)), "compliments.db")
 
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
-        # Connect to our SQLite database
+        # Connect to our SQLite database and enable dictionary-like row access
         db = g._database = sqlite3.connect(DATABASE)
-        # Enable dictionary-like row access
         db.row_factory = sqlite3.Row
     return db
 
 def init_db():
     with app.app_context():
         db = get_db()
-        # Create compliments table if it doesn't exist yet
+        # Create the compliments table if it doesn't exist yet
         db.execute("""
             CREATE TABLE IF NOT EXISTS compliments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,14 +38,14 @@ def close_connection(exception):
     if db is not None:
         db.close()
 
-# Initialize the database when the app starts
+# Initialize the database during app startup
 init_db()
 
 @app.route('/')
 def index():
     return "Compliment API is Live! Spread kindness responsibly."
 
-# Endpoint to retrieve the most recent compliment
+# GET endpoint to retrieve the most recent compliment
 @app.route('/compliment', methods=['GET'])
 def get_last_compliment():
     try:
@@ -53,16 +56,17 @@ def get_last_compliment():
             return jsonify({
                 "name": row["name"],
                 "compliment": row["compliment"]
-            })
+            }), 200
         else:
             return jsonify({
                 "name": "",
-                "compliment": "No compliments yet! Be the first to spread some kindness."
-            })
+                "compliment": "No compliments yet! Be the first to share some kindness."
+            }), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error getting compliment: {e}")
+        return jsonify({"error": "Internal Server Error"}), 500
 
-# Endpoint to add a new compliment
+# POST endpoint to add a new compliment
 @app.route('/compliment', methods=['POST'])
 def add_compliment():
     try:
@@ -71,7 +75,7 @@ def add_compliment():
         compliment = data.get("compliment")
         if not name or not compliment:
             return jsonify({"error": "Name and compliment are required."}), 400
-        
+
         timestamp = datetime.utcnow().isoformat()
         db = get_db()
         db.execute(
@@ -81,8 +85,10 @@ def add_compliment():
         db.commit()
         return jsonify({"message": "Compliment added! Spread the love!"}), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error adding compliment: {e}")
+        return jsonify({"error": "Internal Server Error"}), 500
 
 if __name__ == '__main__':
-    # Only for local testing; for Render.com deployment, ensure proper WSGI support
-    app.run(debug=True, host="0.0.0.0")
+    # For production, run this through a WSGI server (e.g., Gunicorn)
+    # For local testing, enable debug mode.
+    app.run(host="0.0.0.0", debug=False)
